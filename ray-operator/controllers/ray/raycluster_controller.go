@@ -766,8 +766,8 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			logger.Info("Deleting pod", "namespace", pod.Namespace, "name", pod.Name)
 			rayClusterExpectation.ExpectWorkerDeletions(key, worker.GroupName, 1)
 			if err := r.Delete(ctx, &pod); err != nil {
+				rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Delete)
 				if !errors.IsNotFound(err) {
-					rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Delete)
 					logger.Info("reconcilePods", "Fail to delete Pod", pod.Name, "error", err)
 					return err
 				}
