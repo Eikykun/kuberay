@@ -9,38 +9,40 @@ import (
 	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
-
-	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler"
-	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
-	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-
-	batchv1 "k8s.io/api/batch/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	"k8s.io/client-go/tools/record"
-
 	"github.com/go-logr/logr"
 	routev1 "github.com/openshift/api/route/v1"
 	_ "k8s.io/api/apps/v1beta1"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/rest"
-
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	controller "sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/batchscheduler"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/expectations"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 )
 
 var (
@@ -49,6 +51,10 @@ var (
 
 	// Definition of a index field for pod name
 	podUIDIndexField = "metadata.uid"
+
+	controllerGroupKind = schema.GroupKind{Group: "ray.io", Kind: "RayCluster"}
+
+	rayClusterExpectation = expectations.NewRayClusterExpectation("raycluster-controller")
 )
 
 // getDiscoveryClient returns a discovery client for the current reconciler
@@ -169,6 +175,7 @@ func (r *RayClusterReconciler) Reconcile(ctx context.Context, request ctrl.Reque
 
 	// No match found
 	if errors.IsNotFound(err) {
+		rayClusterExpectation.DeleteExpectations(request.String())
 		logger.Info("Read request instance not found error!")
 	} else {
 		logger.Error(err, "Read request instance error!")
@@ -652,7 +659,11 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			return err
 		}
 	}
-
+	key := GetControllerKey(instance)
+	if !rayClusterExpectation.SatisfiedHeadExpectations(key) {
+		logger.Info("reconcilePods", "RayCluster", key, "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
+		return nil
+	}
 	// Reconcile head Pod
 	if len(headPods.Items) == 1 {
 		headPod := headPods.Items[0]
@@ -663,7 +674,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		shouldDelete, reason := shouldDeletePod(headPod, rayv1.HeadNode)
 		logger.Info("reconcilePods", "head Pod", headPod.Name, "shouldDelete", shouldDelete, "reason", reason)
 		if shouldDelete {
+			rayClusterExpectation.ExpectHeadDeletions(key, 1)
 			if err := r.Delete(ctx, &headPod); err != nil {
+				rayClusterExpectation.ObservedHead(key, expectations.Delete)
 				return err
 			}
 			r.Recorder.Eventf(instance, corev1.EventTypeNormal, "Deleted",
@@ -694,7 +707,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		}
 		// delete all the extra head pod pods
 		for _, extraHeadPodToDelete := range headPods.Items {
+			rayClusterExpectation.ExpectHeadDeletions(key, 1)
 			if err := r.Delete(ctx, &extraHeadPodToDelete); err != nil {
+				rayClusterExpectation.ObservedHead(key, expectations.Delete)
 				return err
 			}
 		}
@@ -702,6 +717,10 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 
 	// Reconcile worker pods now
 	for _, worker := range instance.Spec.WorkerGroupSpecs {
+		if !rayClusterExpectation.SatisfiedWorkerExpectations(key, worker.GroupName) {
+			logger.Info("reconcilePods", "RayCluster", key, "Expectation", fmt.Sprintf("NotSatisfiedHeadExpectations, reconcile group %s later", worker.GroupName))
+			continue
+		}
 		// workerReplicas will store the target number of pods for this worker group.
 		var workerReplicas int32 = utils.GetWorkerGroupDesiredReplicas(ctx, worker)
 		logger.Info("reconcilePods", "desired workerReplicas (always adhering to minReplicas/maxReplica)", workerReplicas, "worker group", worker.GroupName, "maxReplicas", worker.MaxReplicas, "minReplicas", worker.MinReplicas, "replicas", worker.Replicas)
@@ -721,7 +740,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			if shouldDelete {
 				numDeletedUnhealthyWorkerPods++
 				deletedWorkers[workerPod.Name] = deleted
+				rayClusterExpectation.ExpectWorkerDeletions(key, worker.GroupName, 1)
 				if err := r.Delete(ctx, &workerPod); err != nil {
+					rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Delete)
 					return err
 				}
 				r.Recorder.Eventf(instance, corev1.EventTypeNormal, "Deleted",
@@ -743,8 +764,10 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			pod.Name = podsToDelete
 			pod.Namespace = utils.GetNamespace(instance.ObjectMeta)
 			logger.Info("Deleting pod", "namespace", pod.Namespace, "name", pod.Name)
+			rayClusterExpectation.ExpectWorkerDeletions(key, worker.GroupName, 1)
 			if err := r.Delete(ctx, &pod); err != nil {
 				if !errors.IsNotFound(err) {
+					rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Delete)
 					logger.Info("reconcilePods", "Fail to delete Pod", pod.Name, "error", err)
 					return err
 				}
@@ -812,7 +835,9 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				for i := 0; i < int(randomlyRemovedWorkers); i++ {
 					randomPodToDelete := runningPods.Items[i]
 					logger.Info("Randomly deleting Pod", "progress", fmt.Sprintf("%d / %d", i+1, randomlyRemovedWorkers), "with name", randomPodToDelete.Name)
+					rayClusterExpectation.ExpectWorkerDeletions(key, worker.GroupName, 1)
 					if err := r.Delete(ctx, &randomPodToDelete); err != nil {
+						rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Delete)
 						if !errors.IsNotFound(err) {
 							return err
 						}
@@ -990,9 +1015,13 @@ func (r *RayClusterReconciler) createHeadPod(ctx context.Context, instance rayv1
 	}
 
 	logger.Info("createHeadPod", "head pod with name", pod.GenerateName)
+	key := GetControllerKey(&instance)
+	rayClusterExpectation.ExpectHeadCreations(key, 1)
 	if err := r.Create(ctx, &pod); err != nil {
+		rayClusterExpectation.ObservedHead(key, expectations.Create)
 		return err
 	}
+
 	r.Recorder.Eventf(&instance, corev1.EventTypeNormal, "Created", "Created head pod %s", pod.Name)
 	return nil
 }
@@ -1011,7 +1040,10 @@ func (r *RayClusterReconciler) createWorkerPod(ctx context.Context, instance ray
 	}
 
 	replica := pod
+	key := GetControllerKey(&instance)
+	rayClusterExpectation.ExpectWorkerCreations(key, worker.GroupName, 1)
 	if err := r.Create(ctx, &replica); err != nil {
+		rayClusterExpectation.ObservedWorker(key, worker.GroupName, expectations.Create)
 		return err
 	}
 	logger.Info("Created pod", "Pod ", pod.GenerateName)
@@ -1155,8 +1187,7 @@ func (r *RayClusterReconciler) SetupWithManager(mgr ctrl.Manager, reconcileConcu
 			predicate.GenerationChangedPredicate{},
 			predicate.LabelChangedPredicate{},
 			predicate.AnnotationChangedPredicate{},
-		))).
-		Owns(&corev1.Pod{}).
+		))).Watches(&corev1.Pod{}, podEventHandlerFunc).
 		Owns(&corev1.Service{})
 
 	if EnableBatchScheduler {
@@ -1490,4 +1521,127 @@ func sumGPUs(resources map[corev1.ResourceName]resource.Quantity) resource.Quant
 	}
 
 	return totalGPUs
+}
+
+var podEventHandlerFunc = handler.Funcs{
+	// Create is called in response to an add event.  Defaults to no-op.
+	// RateLimitingInterface is used to enqueue reconcile.Requests.
+	CreateFunc: func(ctx context.Context, evt event.CreateEvent, q workqueue.RateLimitingInterface) {
+		logger := ctrl.LoggerFrom(ctx)
+		pod, ok := evt.Object.(*corev1.Pod)
+		if !ok {
+			logger.Error(fmt.Errorf("CreateEvent parse pod failed, obj: %#v",
+				evt.Object), "Parse pod error!")
+			return
+		}
+		if req, err := resolveControllerRef(pod); err != nil {
+			logger.Error(err, "Fail to get controller reference.")
+			return
+		} else if req != nil {
+			rayClusterExpectation.Observed(req.String(), pod.Name, expectations.Create)
+			q.Add(req)
+		}
+	},
+
+	// Update is called in response to an update event.  Defaults to no-op.
+	// RateLimitingInterface is used to enqueue reconcile.Requests.
+	UpdateFunc: func(ctx context.Context, evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
+		logger := ctrl.LoggerFrom(ctx)
+		oldPod, ok := evt.ObjectOld.(*corev1.Pod)
+		if !ok {
+			logger.Error(fmt.Errorf("UpdateEvent parse old pod failed, obj: %#v",
+				evt.ObjectOld), "Parse pod error!")
+			return
+		}
+		if req, err := resolveControllerRef(oldPod); err != nil {
+			logger.Error(err, "Fail to get old pod controller reference.")
+			return
+		} else if req != nil {
+			q.Add(req)
+		}
+		newPod, ok := evt.ObjectNew.(*corev1.Pod)
+		if !ok {
+			logger.Error(fmt.Errorf("UpdateEvent parse new pod failed, obj: %#v",
+				evt.ObjectNew), "Parse pod error!")
+			return
+		}
+		if req, err := resolveControllerRef(newPod); err != nil {
+			logger.Error(err, "Fail to get new pod controller reference.")
+			return
+		} else if req != nil {
+			q.Add(req)
+		}
+	},
+
+	// Delete is called in response to a delete event.  Defaults to no-op.
+	// RateLimitingInterface is used to enqueue reconcile.Requests.
+	DeleteFunc: func(ctx context.Context, evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
+		logger := ctrl.LoggerFrom(ctx)
+		pod, ok := evt.Object.(*corev1.Pod)
+		if !ok {
+			logger.Error(fmt.Errorf("DeleteEvent parse pod failed, DeleteStateUnknown: %#v, obj: %#v",
+				evt.DeleteStateUnknown,
+				evt.Object),
+				"Parse pod error!")
+			return
+		}
+		req, err := resolveControllerRef(pod)
+		if err != nil {
+			logger.Error(err, "Fail to get controller reference.")
+			return
+		}
+		if req != nil {
+			rayClusterExpectation.Observed(req.String(), pod.Name, expectations.Delete)
+			q.Add(req)
+		}
+	},
+	// GenericFunc is called in response to a generic event.  Defaults to no-op.
+	// RateLimitingInterface is used to enqueue reconcile.Requests.
+	GenericFunc: func(ctx context.Context, evt event.GenericEvent, q workqueue.RateLimitingInterface) {
+		logger := ctrl.LoggerFrom(ctx)
+		pod, ok := evt.Object.(*corev1.Pod)
+		if !ok {
+			logger.Error(fmt.Errorf("GenericEvent parse pod failed, obj: %#v",
+				evt.Object), "Parse pod error!")
+			return
+		}
+		if req, err := resolveControllerRef(pod); err != nil {
+			logger.Error(err, "Fail to get controller reference.")
+			return
+		} else if req != nil {
+			q.Add(req)
+		}
+	},
+}
+
+func resolveControllerRef(po *corev1.Pod) (*reconcile.Request, error) {
+	controllerRef := metav1.GetControllerOf(po)
+	if controllerRef == nil {
+		return nil, nil
+	}
+
+	// Parse the Group out of the OwnerReference to compare it to what was parsed out of the requested OwnerType
+	refGV, err := schema.ParseGroupVersion(controllerRef.APIVersion)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse OwnerReference %v APIVersion: %v", controllerRef, err)
+	}
+
+	// Compare the OwnerReference Group and Kind against the OwnerType Group and Kind specified by the user.
+	// If the two match, create a Request for the objected referred to by
+	// the OwnerReference.  Use the Name from the OwnerReference and the Namespace from the
+	// object in the event.
+	if controllerRef.Kind == controllerGroupKind.Kind && refGV.Group == controllerGroupKind.Group {
+		// Match found - add a Request for the object referred to in the OwnerReference
+		req := reconcile.Request{NamespacedName: types.NamespacedName{
+			Namespace: po.Namespace,
+			Name:      controllerRef.Name,
+		}}
+		return &req, nil
+	}
+	return nil, nil
+}
+
+// GetControllerKey return key of RayCluster.
+func GetControllerKey(rc *rayv1.RayCluster) string {
+	return types.NamespacedName{Namespace: rc.Namespace, Name: rc.Name}.String()
 }
