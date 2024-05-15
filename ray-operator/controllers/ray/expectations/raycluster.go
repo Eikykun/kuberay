@@ -92,24 +92,22 @@ func (re *RayClusterExpectation) ExpectHeadCreations(rayClusterKey string, adds 
 	return re.exp.ExpectCreations(rayClusterGroupKey(rayClusterKey, DefaultHeadGroup), adds)
 }
 
-func (re *RayClusterExpectation) Observed(rayClusterKey, podName string, action Action) {
+func (re *RayClusterExpectation) Observed(namespace, podName string, action Action) {
 	vals := strings.Split(podName, utils.DashSymbol)
 	// head   : {instance}-head-{Hash}
 	// worker : {instance}-worker-{Group}-{Hash}
-	var nodeTypeStr, group string
+	group := DefaultHeadGroup
 	if len(vals) > 2 {
-		nodeTypeStr, group = vals[1], vals[2]
-	} else if len(vals) == 2 {
-		nodeTypeStr = vals[1]
-	}
-	switch nodeTypeStr {
-	case string(rayv1.HeadNode):
-		re.ObservedHead(rayClusterKey, action)
-	case string(rayv1.WorkerNode):
-		re.ObservedWorker(rayClusterKey, group, action)
-	default:
-		// Non-standard Ray Pod naming convention
+		group = vals[2]
+	} else if len(vals) < 2 {
 		return
+	}
+	rayClusterKey := namespace + "/" + vals[0]
+
+	if group == DefaultHeadGroup {
+		re.ObservedHead(rayClusterKey, action)
+	} else {
+		re.ObservedWorker(rayClusterKey, group, action)
 	}
 }
 

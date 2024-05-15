@@ -511,6 +511,9 @@ func TestReconcile_RemoveWorkersToDelete_RandomDelete(t *testing.T) {
 			}
 			numRandomDelete := expectedNumWorkersToDelete - (len(tc.workersToDelete) - len(nonExistentPodSet))
 			assert.Equal(t, tc.numRandomDelete, numRandomDelete)
+
+			// Reset expectations
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 		})
 	}
 }
@@ -601,6 +604,8 @@ func TestReconcile_RemoveWorkersToDelete_NoRandomDelete(t *testing.T) {
 					t.Fatalf("WorkersToDelete is not actually deleted, %s", pod.Name)
 				}
 			}
+			// Reset expectations
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 		})
 	}
 }
@@ -652,6 +657,8 @@ func TestReconcile_RandomDelete_OK(t *testing.T) {
 			t.Fatalf("WorkersToDelete is not actually deleted, %s", podList.Items[i].Name)
 		}
 	}
+	// Reset expectations
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 }
 
 func TestReconcile_PodDeleted_Diff0_OK(t *testing.T) {
@@ -709,6 +716,9 @@ func TestReconcile_PodDeleted_Diff0_OK(t *testing.T) {
 	assert.Nil(t, err, "Fail to get pod list after reconcile")
 	assert.Equal(t, expectedNumWorkerPods, len(podList.Items),
 		"Replica number is wrong after reconcile expect %d actual %d", expectedNumWorkerPods, len(podList.Items))
+
+	// Reset expectations
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 }
 
 func TestReconcile_PodDeleted_DiffLess0_OK(t *testing.T) {
@@ -768,6 +778,9 @@ func TestReconcile_PodDeleted_DiffLess0_OK(t *testing.T) {
 	// The number of worker Pods should be 3.
 	assert.Equal(t, expectedNumWorkerPods, len(podList.Items),
 		"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, len(podList.Items))
+
+	// Reset expectations
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 }
 
 func TestReconcile_Diff0_WorkersToDelete_OK(t *testing.T) {
@@ -823,6 +836,9 @@ func TestReconcile_Diff0_WorkersToDelete_OK(t *testing.T) {
 	assert.Equal(t, expectedNumWorkerPods, len(podList.Items))
 	assert.Equal(t, expectedNumWorkerPods, getNotFailedPodItemNum(podList),
 		"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, getNotFailedPodItemNum(podList))
+
+	// Reset expectations
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 }
 
 func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
@@ -912,6 +928,8 @@ func TestReconcile_PodCrash_DiffLess0_OK(t *testing.T) {
 				assert.Equal(t, expectedNumWorkerPods+1, getNotFailedPodItemNum(podList),
 					"Replica number is wrong after reconcile expect %d actual %d", expectReplicaNum, getNotFailedPodItemNum(podList))
 			}
+			// Reset expectations
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 		})
 	}
 }
@@ -957,6 +975,9 @@ func TestReconcile_PodEvicted_DiffLess0_OK(t *testing.T) {
 	assert.Nil(t, err, "Fail to get pod list after reconcile")
 	assert.Equal(t, 0, len(podList.Items),
 		"Evicted head should be deleted after reconcile expect %d actual %d", 0, len(podList.Items))
+
+	// Reset expectations
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 }
 
 func TestReconcileHeadService(t *testing.T) {
@@ -1761,6 +1782,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 	// Since the desired state of the workerGroup is 3 replicas, the controller
 	// will delete 2 worker Pods.
 	err = testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err, "Fail to reconcile Pods")
 
 	err = fakeClient.List(ctx, &podList, &client.ListOptions{
@@ -1780,6 +1802,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 	// Pods to be deleted, the controller won't create new worker Pods during the same reconcile loop. As a result, the number of worker
 	// Pods will be (expectedNumWorkerPods - 1) after the reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.NotNil(t, err)
 	err = fakeClient.List(ctx, &podList, &client.ListOptions{
 		LabelSelector: workerSelector,
@@ -1792,6 +1815,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 	// Note that the status of new worker Pod created by the fake client is empty, so we need to set all worker
 	// Pods to running state manually to avoid the new Pod being deleted in the next `reconcilePods` call.
 	err = testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err)
 	err = fakeClient.List(ctx, &podList, &client.ListOptions{
 		LabelSelector: workerSelector,
@@ -1820,6 +1844,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 	// Pods to be deleted, the controller won't create new worker Pods during the same reconcile loop. As a result, the number of worker
 	// Pods will be (expectedNumWorkerPods - 1) after the reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.NotNil(t, err)
 	err = fakeClient.List(ctx, &podList, &client.ListOptions{
 		LabelSelector: workerSelector,
@@ -1830,6 +1855,7 @@ func Test_TerminatedWorkers_NoAutoscaler(t *testing.T) {
 
 	// Reconcile again, and the controller will create a new worker Pod to reach the goal state of the workerGroup.
 	err = testRayClusterReconciler.reconcilePods(ctx, testRayCluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err)
 	err = fakeClient.List(ctx, &podList, &client.ListOptions{
 		LabelSelector: workerSelector,
@@ -1883,6 +1909,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 
 	// The head Pod will not be deleted because the restart policy is `Always`.
 	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err)
 	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
 	assert.Nil(t, err, "Fail to get pod list")
@@ -1899,6 +1926,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 	// The head Pod will be deleted and the controller will return an error
 	// instead of creating a new head Pod in the same reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.NotNil(t, err)
 	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
 	assert.Nil(t, err, "Fail to get pod list")
@@ -1906,6 +1934,7 @@ func Test_TerminatedHead_RestartPolicy(t *testing.T) {
 
 	// The new head Pod will be created in this reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err)
 	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
 	assert.Nil(t, err, "Fail to get pod list")
@@ -1967,6 +1996,7 @@ func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 	// The head Pod will be deleted and the controller will return an error
 	// instead of creating a new head Pod in the same reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.NotNil(t, err)
 	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
 	assert.Nil(t, err, "Fail to get pod list")
@@ -1974,6 +2004,7 @@ func Test_RunningPods_RayContainerTerminated(t *testing.T) {
 
 	// The new head Pod will be created in this reconcile loop.
 	err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+	rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 	assert.Nil(t, err)
 	err = fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
 	assert.Nil(t, err, "Fail to get pod list")
@@ -2175,6 +2206,7 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 
 			request := ctrl.Request{NamespacedName: types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}}
 			_, err = testRayClusterReconciler.rayClusterReconcile(ctx, request, cluster)
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 			if tc.enableGCSFTRedisCleanup == "false" {
 				// No finalizer should be added to the RayCluster. The head service and Ray Pods should be created.
 				// The head service's ClusterIP is empty, so the function `getHeadServiceIP` will return an error
@@ -2206,7 +2238,7 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 
 				// Reconcile the RayCluster again. The controller should create Pods.
 				_, err = testRayClusterReconciler.rayClusterReconcile(ctx, request, cluster)
-
+				rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 				// The head service and Ray Pods should be created. The head service's ClusterIP is empty,
 				// so the function `getHeadServiceIP` will return an error to requeue the request when it
 				// tries to update the RayCluster's status.
@@ -2347,6 +2379,7 @@ func Test_RedisCleanup(t *testing.T) {
 
 			request := ctrl.Request{NamespacedName: types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}}
 			_, err = testRayClusterReconciler.rayClusterReconcile(ctx, request, cluster)
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 			assert.Nil(t, err)
 
 			// Check Job
@@ -2374,6 +2407,7 @@ func Test_RedisCleanup(t *testing.T) {
 				// Reconcile the RayCluster again. The controller should remove the finalizer and the RayCluster will be deleted.
 				// See https://github.com/kubernetes-sigs/controller-runtime/blob/release-0.11/pkg/client/fake/client.go#L308-L310 for more details.
 				_, err = testRayClusterReconciler.rayClusterReconcile(ctx, request, cluster)
+				rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 				assert.Nil(t, err, "Fail to reconcile RayCluster")
 				err = fakeClient.List(ctx, &rayClusterList, client.InNamespace(namespaceStr))
 				assert.Nil(t, err, "Fail to get RayCluster list")
@@ -2457,6 +2491,7 @@ func TestReconcile_Replicas_Optional(t *testing.T) {
 			// Since the desired state of the workerGroup is 1 replica,
 			// the controller will delete 4 worker Pods.
 			err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 			assert.Nil(t, err, "Fail to reconcile Pods")
 
 			err = fakeClient.List(ctx, &podList, &client.ListOptions{
@@ -2549,6 +2584,7 @@ func TestReconcile_Multihost_Replicas(t *testing.T) {
 			// Since the desired state of the workerGroup is 1 replica,
 			// the controller will delete 4 worker Pods.
 			err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 			assert.Nil(t, err, "Fail to reconcile Pods")
 
 			err = fakeClient.List(ctx, &podList, &client.ListOptions{
@@ -2615,6 +2651,7 @@ func TestReconcile_NumOfHosts(t *testing.T) {
 			}
 
 			err = testRayClusterReconciler.reconcilePods(ctx, cluster)
+			rayClusterExpectation.DeleteExpectations(GetControllerKey(testRayCluster))
 			assert.Nil(t, err, "Fail to reconcile Pods")
 
 			err = fakeClient.List(ctx, &podList, &client.ListOptions{

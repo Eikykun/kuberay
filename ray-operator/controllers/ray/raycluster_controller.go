@@ -1591,7 +1591,7 @@ var podEventHandlerFunc = handler.Funcs{
 			return
 		}
 		if req != nil {
-			rayClusterExpectation.Observed(req.String(), pod.Name, expectations.Delete)
+			rayClusterExpectation.Observed(pod.Namespace, pod.Name, expectations.Delete)
 			q.Add(req)
 		}
 	},
