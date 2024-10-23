@@ -1050,7 +1050,7 @@ func (r *RayClusterReconciler) createWorkerPod(ctx context.Context, instance ray
 
 	replica := pod
 	key := expectations.RayClusterKey(&instance)
-	if err := r.Create(ctx, &pod); err != nil {
+	if err := r.Create(ctx, &replica); err != nil {
 		r.Recorder.Eventf(&instance, corev1.EventTypeWarning, string(utils.FailedToCreateWorkerPod), "Failed to create worker Pod %s/%s, %v", pod.Namespace, pod.Name, err)
 		return err
 	}

@@ -3120,6 +3120,7 @@ func TestEvents_FailedPodCreation(t *testing.T) {
 			}).WithRuntimeObjects(testPods...).Build()
 			ctx := context.Background()
 
+			rayClusterExpectation = expectations.NewRayClusterExpectations(fakeClient)
 			// Get the pod list from the fake client.
 			podList := corev1.PodList{}
 			err := fakeClient.List(ctx, &podList, client.InNamespace(namespaceStr))
