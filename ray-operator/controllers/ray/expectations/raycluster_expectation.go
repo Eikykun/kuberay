@@ -42,9 +42,9 @@ func NewRayClusterExpectations(client client.Client) RayClusterExpectationInterf
 }
 
 type RayClusterExpectations struct {
-	mu         sync.RWMutex
-	groupStore map[string]sets.Set[string]
 	exp        ActiveExpectationsInterface
+	groupStore map[string]sets.Set[string]
+	mu         sync.RWMutex
 }
 
 func (rc *RayClusterExpectations) record(rayClusterKey, group string) {

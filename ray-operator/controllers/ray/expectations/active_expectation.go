@@ -174,10 +174,10 @@ func NewActiveExpectation(client client.Client, key, namespace string) *ActiveEx
 
 type ActiveExpectation struct {
 	client.Client
-	namespace       string
-	key             string
 	items           cache.Store
 	recordTimestamp time.Time
+	namespace       string
+	key             string
 }
 
 func (ae *ActiveExpectation) expectCreateOrDelete(kind ExpectedResourceType, name string, action ActiveExpectationAction) error {
@@ -241,13 +241,12 @@ func (ae *ActiveExpectation) delete(kind, name string) error {
 
 type ActiveExpectationItem struct {
 	client.Client
-
+	RecordTimestamp time.Time
 	Key             string
 	Name            string
 	Kind            ExpectedResourceType
-	Action          ActiveExpectationAction
 	ResourceVersion int64
-	RecordTimestamp time.Time
+	Action          ActiveExpectationAction
 }
 
 func (i *ActiveExpectationItem) isSatisfied(namespace string) bool {
