@@ -704,7 +704,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 		}
 	}
 	// Reconcile head Pod
-	if !rayClusterScaleExpectation.IsSatisfied(ctx, instance.Name, instance.Namespace, expectations.HeadGroup) {
+	if !rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, expectations.HeadGroup) {
 		logger.Info("reconcilePods", "Expectation", "NotSatisfiedHeadExpectations, reconcile head later")
 	} else if len(headPods.Items) == 1 {
 		headPod := headPods.Items[0]
@@ -722,7 +722,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 					headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod), err)
 				return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
 			}
-			rayClusterScaleExpectation.ExpectScalePod(instance.Name, expectations.HeadGroup, headPod.Namespace, headPod.Name, expectations.Delete)
+			rayClusterScaleExpectation.ExpectScalePod(headPod.Namespace, instance.Name, expectations.HeadGroup, headPod.Name, expectations.Delete)
 			r.Recorder.Eventf(instance, corev1.EventTypeNormal, string(utils.DeletedHeadPod),
 				"Deleted head Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
 				headPod.Namespace, headPod.Name, headPod.Status.Phase, headPod.Spec.RestartPolicy, getRayContainerStateTerminated(headPod))
@@ -754,13 +754,13 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 			if err := r.Delete(ctx, &extraHeadPodToDelete); err != nil {
 				return errstd.Join(utils.ErrFailedDeleteHeadPod, err)
 			}
-			rayClusterScaleExpectation.ExpectScalePod(instance.Name, expectations.HeadGroup, extraHeadPodToDelete.Namespace, extraHeadPodToDelete.Name, expectations.Delete)
+			rayClusterScaleExpectation.ExpectScalePod(extraHeadPodToDelete.Namespace, instance.Name, expectations.HeadGroup, extraHeadPodToDelete.Name, expectations.Delete)
 		}
 	}
 
 	// Reconcile worker pods now
 	for _, worker := range instance.Spec.WorkerGroupSpecs {
-		if !rayClusterScaleExpectation.IsSatisfied(ctx, instance.Name, worker.GroupName, instance.Namespace) {
+		if !rayClusterScaleExpectation.IsSatisfied(ctx, instance.Namespace, instance.Name, worker.GroupName) {
 			logger.Info("reconcilePods", "Expectation", fmt.Sprintf("NotSatisfiedGroupExpectations, reconcile group %s later", worker.GroupName))
 			continue
 		}
@@ -789,7 +789,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 						workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod), err)
 					return errstd.Join(utils.ErrFailedDeleteWorkerPod, err)
 				}
-				rayClusterScaleExpectation.ExpectScalePod(instance.Name, worker.GroupName, workerPod.Namespace, workerPod.Name, expectations.Delete)
+				rayClusterScaleExpectation.ExpectScalePod(workerPod.Namespace, instance.Name, worker.GroupName, workerPod.Name, expectations.Delete)
 				r.Recorder.Eventf(instance, corev1.EventTypeNormal, string(utils.DeletedWorkerPod),
 					"Deleted worker Pod %s/%s; Pod status: %s; Pod restart policy: %s; Ray container terminated status: %v",
 					workerPod.Namespace, workerPod.Name, workerPod.Status.Phase, workerPod.Spec.RestartPolicy, getRayContainerStateTerminated(workerPod))
@@ -817,7 +817,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 				}
 				logger.Info("reconcilePods", "The worker Pod has already been deleted", pod.Name)
 			} else {
-				rayClusterScaleExpectation.ExpectScalePod(instance.Name, worker.GroupName, pod.Namespace, pod.Name, expectations.Delete)
+				rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, worker.GroupName, pod.Name, expectations.Delete)
 				deletedWorkers[pod.Name] = deleted
 				r.Recorder.Eventf(instance, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), "Deleted pod %s/%s", pod.Namespace, pod.Name)
 			}
@@ -886,7 +886,7 @@ func (r *RayClusterReconciler) reconcilePods(ctx context.Context, instance *rayv
 						}
 						logger.Info("reconcilePods", "The worker Pod has already been deleted", randomPodToDelete.Name)
 					}
-					rayClusterScaleExpectation.ExpectScalePod(instance.Name, worker.GroupName, randomPodToDelete.Namespace, randomPodToDelete.Name, expectations.Delete)
+					rayClusterScaleExpectation.ExpectScalePod(randomPodToDelete.Namespace, instance.Name, worker.GroupName, randomPodToDelete.Name, expectations.Delete)
 					r.Recorder.Eventf(instance, corev1.EventTypeNormal, string(utils.DeletedWorkerPod), "Deleted Pod %s/%s", randomPodToDelete.Namespace, randomPodToDelete.Name)
 				}
 			} else {
@@ -1052,7 +1052,7 @@ func (r *RayClusterReconciler) createHeadPod(ctx context.Context, instance rayv1
 		r.Recorder.Eventf(&instance, corev1.EventTypeWarning, string(utils.FailedToCreateHeadPod), "Failed to create head Pod %s/%s, %v", pod.Namespace, pod.Name, err)
 		return err
 	}
-	rayClusterScaleExpectation.ExpectScalePod(instance.Name, expectations.HeadGroup, pod.Namespace, pod.Name, expectations.Create)
+	rayClusterScaleExpectation.ExpectScalePod(pod.Namespace, instance.Name, expectations.HeadGroup, pod.Name, expectations.Create)
 	logger.Info("Created head Pod for RayCluster", "name", pod.Name)
 	r.Recorder.Eventf(&instance, corev1.EventTypeNormal, string(utils.CreatedHeadPod), "Created head Pod %s/%s", pod.Namespace, pod.Name)
 	return nil
@@ -1076,7 +1076,7 @@ func (r *RayClusterReconciler) createWorkerPod(ctx context.Context, instance ray
 		r.Recorder.Eventf(&instance, corev1.EventTypeWarning, string(utils.FailedToCreateWorkerPod), "Failed to create worker Pod %s/%s, %v", pod.Namespace, pod.Name, err)
 		return err
 	}
-	rayClusterScaleExpectation.ExpectScalePod(instance.Name, worker.GroupName, replica.Namespace, replica.Name, expectations.Create)
+	rayClusterScaleExpectation.ExpectScalePod(replica.Namespace, instance.Name, worker.GroupName, replica.Name, expectations.Create)
 	logger.Info("Created worker Pod for RayCluster", "name", pod.Name)
 	r.Recorder.Eventf(&instance, corev1.EventTypeNormal, string(utils.CreatedWorkerPod), "Created worker Pod %s/%s", pod.Namespace, pod.Name)
 	return nil

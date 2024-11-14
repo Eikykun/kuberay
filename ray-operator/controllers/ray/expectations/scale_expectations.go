@@ -37,8 +37,8 @@ const (
 
 // RayClusterScaleExpectation is an interface that to set and wait on expectations of RayCluster groups scale.
 type RayClusterScaleExpectation interface {
-	ExpectScalePod(rayClusterName, group, namespace, name string, action ScaleAction)
-	IsSatisfied(ctx context.Context, rayClusterName, group, namespace string) bool
+	ExpectScalePod(namespace, rayClusterName, group, podName string, action ScaleAction)
+	IsSatisfied(ctx context.Context, namespace, rayClusterName, group string) bool
 	Delete(rayClusterName, namespace string)
 }
 
@@ -55,7 +55,7 @@ type realRayClusterScaleExpectation struct {
 	itemsCache cache.Indexer
 }
 
-func (r *realRayClusterScaleExpectation) ExpectScalePod(rayClusterName, group, namespace, name string, action ScaleAction) {
+func (r *realRayClusterScaleExpectation) ExpectScalePod(namespace, rayClusterName, group, name string, action ScaleAction) {
 	if err := r.itemsCache.Add(&rayPod{
 		name:            name,
 		namespace:       namespace,
@@ -68,7 +68,7 @@ func (r *realRayClusterScaleExpectation) ExpectScalePod(rayClusterName, group, n
 	}
 }
 
-func (r *realRayClusterScaleExpectation) IsSatisfied(ctx context.Context, rayClusterName, group, namespace string) (isSatisfied bool) {
+func (r *realRayClusterScaleExpectation) IsSatisfied(ctx context.Context, namespace, rayClusterName, group string) (isSatisfied bool) {
 	items, _ := r.itemsCache.ByIndex(GroupIndex, fmt.Sprintf("%s/%s/%s", namespace, rayClusterName, group))
 	isSatisfied = true
 	for i := range items {
