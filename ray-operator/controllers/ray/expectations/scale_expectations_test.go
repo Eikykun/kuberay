@@ -3,6 +3,7 @@ package expectations
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -25,14 +26,14 @@ func TestRayClusterExpectationsHeadPod(t *testing.T) {
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), false)
 	// Add a pod to the informer. This is used to simulate the informer syncing with the head pod in etcd.
 	// In reality, it should be automatically done by the informer.
-	err := fakeClient.Create(ctx, testPods[0])
+	err := fakeClient.Create(ctx, &testPods[0])
 	assert.NoError(t, err, "Fail to create head pod")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), true)
 	// Expect delete head pod.
 	exp.ExpectScalePod(namespace, rayClusterName, HeadGroup, testPods[0].Name, Delete)
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), false)
 	// Delete head pod from the informer.
-	err = fakeClient.Delete(ctx, testPods[0])
+	err = fakeClient.Delete(ctx, &testPods[0])
 	assert.NoError(t, err, "Fail to delete head pod")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), true)
 }
@@ -53,14 +54,14 @@ func TestRayClusterExpectationsWorkerGroupPods(t *testing.T) {
 	exp.ExpectScalePod(namespace, rayClusterName, groupB, testPods[2].Name, Create)
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), false)
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), false)
-	assert.NoError(t, fakeClient.Create(ctx, testPods[1]), "Fail to create worker pod2")
+	assert.NoError(t, fakeClient.Create(ctx, &testPods[1]), "Fail to create worker pod2")
 	// All pods within the same group are expected to meet.
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), false)
-	assert.NoError(t, fakeClient.Create(ctx, testPods[2]), "Fail to create worker pod3")
+	assert.NoError(t, fakeClient.Create(ctx, &testPods[2]), "Fail to create worker pod3")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), true)
 	// Different groups do not affect each other.
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), false)
-	assert.NoError(t, fakeClient.Create(ctx, testPods[0]), "Fail to create worker pod1")
+	assert.NoError(t, fakeClient.Create(ctx, &testPods[0]), "Fail to create worker pod1")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), true)
 
 	// Expect delete.
@@ -69,13 +70,13 @@ func TestRayClusterExpectationsWorkerGroupPods(t *testing.T) {
 	exp.ExpectScalePod(namespace, rayClusterName, groupB, testPods[2].Name, Delete)
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), false)
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), false)
-	assert.NoError(t, fakeClient.Delete(ctx, testPods[1]), "Fail to delete worker pod2")
+	assert.NoError(t, fakeClient.Delete(ctx, &testPods[1]), "Fail to delete worker pod2")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), false)
-	assert.NoError(t, fakeClient.Delete(ctx, testPods[2]), "Fail to delete worker pod3")
+	assert.NoError(t, fakeClient.Delete(ctx, &testPods[2]), "Fail to delete worker pod3")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupB), true)
 	// Different groups do not affect each other.
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), false)
-	assert.NoError(t, fakeClient.Delete(ctx, testPods[0]), "Fail to delete worker pod1")
+	assert.NoError(t, fakeClient.Delete(ctx, &testPods[0]), "Fail to delete worker pod1")
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, groupA), true)
 }
 
@@ -99,8 +100,26 @@ func TestRayClusterExpectationsDeleteAll(t *testing.T) {
 	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, group), true)
 }
 
-func getTestPod() []*corev1.Pod {
-	return []*corev1.Pod{
+func TestRayClusterExpectationsTimeout(t *testing.T) {
+	ctx := context.TODO()
+	// Reduce the timeout duration so that tests don't have to wait for a long time.
+	ExpectationsTimeout = 1 * time.Second
+	// Simulate local Informer with fakeClient.
+	fakeClient := clientFake.NewClientBuilder().WithRuntimeObjects().Build()
+	exp := NewRayClusterScaleExpectation(fakeClient)
+	namespace := "default"
+	rayClusterName := "raycluster-test"
+	testPods := getTestPod()
+
+	exp.ExpectScalePod(namespace, rayClusterName, HeadGroup, testPods[0].Name, Create)
+	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), false)
+	// Expectations should be released after timeout.
+	<-time.After(ExpectationsTimeout)
+	assert.Equal(t, exp.IsSatisfied(ctx, namespace, rayClusterName, HeadGroup), true)
+}
+
+func getTestPod() []corev1.Pod {
+	return []corev1.Pod{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "pod1",

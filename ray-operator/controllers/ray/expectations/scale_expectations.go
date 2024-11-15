@@ -31,9 +31,7 @@ const (
 	RayClusterIndex = "raycluster"
 )
 
-const (
-	ExpectationsTimeout = time.Second * 30
-)
+var ExpectationsTimeout = time.Second * 30
 
 // RayClusterScaleExpectation is an interface that to set and wait on expectations of RayCluster groups scale.
 type RayClusterScaleExpectation interface {
@@ -64,12 +62,18 @@ func (r *realRayClusterScaleExpectation) ExpectScalePod(namespace, rayClusterNam
 		action:          action,
 		recordTimestamp: time.Now(),
 	}); err != nil {
+		// If an error occurs, it indicates that there is an issue with our KeyFunc.
+		// This is a fatal error, panic it.
 		panic(err)
 	}
 }
 
 func (r *realRayClusterScaleExpectation) IsSatisfied(ctx context.Context, namespace, rayClusterName, group string) (isSatisfied bool) {
-	items, _ := r.itemsCache.ByIndex(GroupIndex, fmt.Sprintf("%s/%s/%s", namespace, rayClusterName, group))
+	items, err := r.itemsCache.ByIndex(GroupIndex, fmt.Sprintf("%s/%s/%s", namespace, rayClusterName, group))
+	if err != nil {
+		// An error occurs when there is no corresponding IndexFunc for GroupIndex. This should be a fatal error.
+		panic(err)
+	}
 	isSatisfied = true
 	for i := range items {
 		rp := items[i].(*rayPod)
@@ -95,7 +99,10 @@ func (r *realRayClusterScaleExpectation) IsSatisfied(ctx context.Context, namesp
 		}
 		// delete satisfied item in cache
 		if isPodSatisfied {
-			_ = r.itemsCache.Delete(items[i])
+			if err := r.itemsCache.Delete(items[i]); err != nil {
+				// Fatal error in KeyFunc.
+				panic(err)
+			}
 		} else {
 			isSatisfied = false
 		}
@@ -104,9 +111,16 @@ func (r *realRayClusterScaleExpectation) IsSatisfied(ctx context.Context, namesp
 }
 
 func (r *realRayClusterScaleExpectation) Delete(rayClusterName, namespace string) {
-	items, _ := r.itemsCache.ByIndex(RayClusterIndex, fmt.Sprintf("%s/%s", namespace, rayClusterName))
+	items, err := r.itemsCache.ByIndex(RayClusterIndex, fmt.Sprintf("%s/%s", namespace, rayClusterName))
+	if err != nil {
+		// An error occurs when there is no corresponding IndexFunc for RayClusterIndex. This should be a fatal error.
+		panic(err)
+	}
 	for _, item := range items {
-		_ = r.itemsCache.Delete(item)
+		if err := r.itemsCache.Delete(item); err != nil {
+			// Fatal error in KeyFunc.
+			panic(err)
+		}
 	}
 }
 
